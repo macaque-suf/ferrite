@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WASM Audio Ferrite - Multi-Stage Noise Reduction Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #fff;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 40px;
+            font-size: 2.5rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .test-section {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .test-section h2 {
+            margin-bottom: 20px;
+            color: #ffd700;
+            font-size: 1.5rem;
+        }
+        
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .control-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        label {
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        input[type="file"],
+        input[type="url"],
+        input[type="text"],
+        select {
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            font-size: 14px;
+        }
+        
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.3);
+            outline: none;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #ffd700;
+            cursor: pointer;
+        }
+        
+        button {
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: none;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 8px rgba(0, 0, 0, 0.4);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        button.active {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        
+        .stage-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+        
+        .stage {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 20px;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+        
+        .stage.active {
+            background: rgba(255, 215, 0, 0.2);
+            border: 2px solid #ffd700;
+        }
+        
+        .stage h3 {
+            margin-bottom: 15px;
+            color: #ffd700;
+            font-size: 1.2rem;
+        }
+        
+        .stage-info {
+            display: grid;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+        }
+        
+        .info-label {
+            color: rgba(255, 255, 255, 0.7);
+        }
+        
+        .info-value {
+            color: #fff;
+            font-weight: bold;
+        }
+        
+        audio {
+            width: 100%;
+            margin-top: 10px;
+        }
+        
+        .waveform-container {
+            height: 100px;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            margin-top: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        canvas {
+            width: 100%;
+            height: 100%;
+        }
+        
+        .status {
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 20px;
+            text-align: center;
+            font-weight: bold;
+        }
+        
+        .status.success {
+            background: rgba(0, 255, 0, 0.2);
+            border: 1px solid #00ff00;
+        }
+        
+        .status.error {
+            background: rgba(255, 0, 0, 0.2);
+            border: 1px solid #ff0000;
+        }
+        
+        .status.info {
+            background: rgba(0, 150, 255, 0.2);
+            border: 1px solid #0096ff;
+        }
+        
+        .status.warning {
+            background: rgba(255, 215, 0, 0.2);
+            border: 1px solid #ffd700;
+        }
+        
+        .loader {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+        }
+        
+        .metric {
+            text-align: center;
+        }
+        
+        .metric-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #ffd700;
+        }
+        
+        .metric-label {
+            font-size: 0.9rem;
+            color: rgba(255, 255, 255, 0.7);
+            margin-top: 5px;
+        }
+        
+        .preset-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .preset-button {
+            padding: 8px 16px;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎧 Multi-Stage Noise Reduction Test Suite</h1>
+        
+        <!-- Audio Source Section -->
+        <div class="test-section">
+            <h2>📁 Audio Source</h2>
+            <div class="controls">
+                <div class="control-group">
+                    <label for="audioFile">Upload Local File:</label>
+                    <input type="file" id="audioFile" accept="audio/*">
+                </div>
+                <div class="control-group">
+                    <label for="audioUrl">Or Load from URL:</label>
+                    <input type="url" id="audioUrl" placeholder="https://example.com/audio.wav">
+                </div>
+            </div>
+            
+            <div class="controls">
+                <div class="control-group">
+                    <label>Sample Audio (MS-SNSD Examples):</label>
+                    <div class="preset-buttons">
+                        <button class="preset-button" onclick="loadSampleAudio('cafe-noise')">☕ Cafe Noise</button>
+                        <button class="preset-button" onclick="loadSampleAudio('street-noise')">🚗 Street Noise</button>
+                        <button class="preset-button" onclick="loadSampleAudio('office-noise')">💼 Office Noise</button>
+                        <button class="preset-button" onclick="loadSampleAudio('white-noise')">📻 White Noise</button>
+                    </div>
+                </div>
+            </div>
+            
+            <button id="loadAudioBtn" onclick="loadAudio()">Load Audio</button>
+            <div id="loadStatus" class="status info" style="display: none;"></div>
+        </div>
+        
+        <!-- WASM Configuration -->
+        <div class="test-section">
+            <h2>⚙️ Noise Reduction Configuration</h2>
+            <div class="controls">
+                <div class="control-group">
+                    <label for="reductionAmount">Reduction Amount: <span id="reductionValue">0.5</span></label>
+                    <input type="range" id="reductionAmount" min="0" max="1" step="0.1" value="0.5">
+                </div>
+                <div class="control-group">
+                    <label for="gateThreshold">Gate Threshold (dB): <span id="thresholdValue">-40</span></label>
+                    <input type="range" id="gateThreshold" min="-80" max="0" step="5" value="-40">
+                </div>
+                <div class="control-group">
+                    <label for="spectralFloor">Spectral Floor: <span id="floorValue">0.1</span></label>
+                    <input type="range" id="spectralFloor" min="0" max="0.5" step="0.05" value="0.1">
+                </div>
+                <div class="control-group">
+                    <label for="processingMode">Processing Mode:</label>
+                    <select id="processingMode">
+                        <option value="full">Full Pipeline</option>
+                        <option value="gate-only">Noise Gate Only</option>
+                        <option value="spectral-only">Spectral Subtraction Only</option>
+                        <option value="bypass">Bypass (Original)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="controls">
+                <button id="initWasmBtn" onclick="initializeWasm()">Initialize WASM Module</button>
+                <button id="processBtn" onclick="processAudio()" disabled>Process Audio</button>
+                <button id="learnNoiseBtn" onclick="learnNoiseProfile()" disabled>Learn Noise Profile (First 1s)</button>
+            </div>
+            
+            <div id="wasmStatus" class="status info" style="display: none;"></div>
+        </div>
+        
+        <!-- Processing Stages Display -->
+        <div class="test-section">
+            <h2>🔊 Processing Stages</h2>
+            <div class="stage-container">
+                <!-- Stage 0: Original -->
+                <div class="stage" id="stage-original">
+                    <h3>Stage 0: Original Audio</h3>
+                    <div class="stage-info">
+                        <div class="info-row">
+                            <span class="info-label">Duration:</span>
+                            <span class="info-value" id="original-duration">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Sample Rate:</span>
+                            <span class="info-value" id="original-samplerate">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">RMS Level:</span>
+                            <span class="info-value" id="original-rms">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Peak Level:</span>
+                            <span class="info-value" id="original-peak">-</span>
+                        </div>
+                    </div>
+                    <audio id="original-audio" controls></audio>
+                    <div class="waveform-container">
+                        <canvas id="original-waveform"></canvas>
+                    </div>
+                </div>
+                
+                <!-- Stage 1: After Noise Gate -->
+                <div class="stage" id="stage-gate">
+                    <h3>Stage 1: After Noise Gate</h3>
+                    <div class="stage-info">
+                        <div class="info-row">
+                            <span class="info-label">Gate Active:</span>
+                            <span class="info-value" id="gate-active">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Reduction:</span>
+                            <span class="info-value" id="gate-reduction">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">RMS Level:</span>
+                            <span class="info-value" id="gate-rms">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Peak Level:</span>
+                            <span class="info-value" id="gate-peak">-</span>
+                        </div>
+                    </div>
+                    <audio id="gate-audio" controls></audio>
+                    <div class="waveform-container">
+                        <canvas id="gate-waveform"></canvas>
+                    </div>
+                </div>
+                
+                <!-- Stage 2: After Spectral Subtraction -->
+                <div class="stage" id="stage-spectral">
+                    <h3>Stage 2: After Spectral Subtraction</h3>
+                    <div class="stage-info">
+                        <div class="info-row">
+                            <span class="info-label">Noise Profile:</span>
+                            <span class="info-value" id="spectral-profile">Not Learned</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Reduction Factor:</span>
+                            <span class="info-value" id="spectral-factor">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">RMS Level:</span>
+                            <span class="info-value" id="spectral-rms">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Peak Level:</span>
+                            <span class="info-value" id="spectral-peak">-</span>
+                        </div>
+                    </div>
+                    <audio id="spectral-audio" controls></audio>
+                    <div class="waveform-container">
+                        <canvas id="spectral-waveform"></canvas>
+                    </div>
+                </div>
+                
+                <!-- Stage 3: Final Output -->
+                <div class="stage" id="stage-final">
+                    <h3>Stage 3: Final Output</h3>
+                    <div class="stage-info">
+                        <div class="info-row">
+                            <span class="info-label">Total Reduction:</span>
+                            <span class="info-value" id="final-reduction">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">SNR Improvement:</span>
+                            <span class="info-value" id="final-snr">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">RMS Level:</span>
+                            <span class="info-value" id="final-rms">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Peak Level:</span>
+                            <span class="info-value" id="final-peak">-</span>
+                        </div>
+                    </div>
+                    <audio id="final-audio" controls></audio>
+                    <div class="waveform-container">
+                        <canvas id="final-waveform"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Performance Metrics -->
+        <div class="test-section">
+            <h2>📊 Performance Metrics</h2>
+            <div class="metrics">
+                <div class="metric">
+                    <div class="metric-value" id="processing-time">-</div>
+                    <div class="metric-label">Processing Time (ms)</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="cpu-usage">-</div>
+                    <div class="metric-label">CPU Usage (%)</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="noise-reduction">-</div>
+                    <div class="metric-label">Noise Reduction (dB)</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="quality-score">-</div>
+                    <div class="metric-label">Quality Score</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script type="module">
+        // Global variables - expose to window for HTML onclick handlers
+        window.wasmModule = null;
+        window.noiseReducer = null;
+        window.audioContext = null;
+        window.originalBuffer = null;
+        window.processedStages = {};
+        window.noiseProfileLearned = false;
+        
+        // Simple Web Audio playback function
+        window.playAudioBuffer = function(stageName) {
+            const buffer = window.audioBuffers[stageName];
+            if (!buffer) {
+                console.error('No buffer found for', stageName);
+                return;
+            }
+            
+            // Stop any currently playing audio
+            if (window.currentSource) {
+                window.currentSource.stop();
+            }
+            
+            const source = audioContext.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioContext.destination);
+            source.start();
+            window.currentSource = source;
+            
+            console.log(`[DEBUG] Playing ${stageName} audio`);
+        }
+        
+        // Update range input displays
+        document.getElementById('reductionAmount').addEventListener('input', (e) => {
+            document.getElementById('reductionValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('gateThreshold').addEventListener('input', (e) => {
+            document.getElementById('thresholdValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('spectralFloor').addEventListener('input', (e) => {
+            document.getElementById('floorValue').textContent = e.target.value;
+        });
+        
+        // Initialize Web Audio and WASM
+        window.initializeWasm = async function() {
+            showStatus('wasmStatus', 'Initializing WASM module...', 'info', true);
+            
+            try {
+                // Load the actual WASM module
+                const wasmModule = await import('./wasm/audio_processor_core.js');
+                await wasmModule.default(); // Initialize WASM
+                
+                // Create the real NoiseReducer from WASM
+                const { NoiseReducer: WasmNoiseReducer } = wasmModule;
+                
+                // Create audio context
+                window.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
+                // Wrapper class to match our API
+                class RealNoiseReducer {
+                    constructor(sampleRate) {
+                        this.wasmReducer = new WasmNoiseReducer(sampleRate);
+                        this.bypass = false;
+                        // Enable Wiener filter mode for better quality
+                        this.wasmReducer.set_wiener_filter_mode(true);
+                        console.log('[DEBUG] Enabled Wiener filter mode');
+                    }
+                    
+                    async initialize() {
+                        // Already initialized in constructor
+                        return true;
+                    }
+                    
+                    async processFloat32Array(input) {
+                        if (this.bypass) {
+                            return new Float32Array(input);
+                        }
+                        // Process through real WASM
+                        const result = this.wasmReducer.process(input);
+                        return new Float32Array(result);
+                    }
+                    
+                    setGateThreshold(value) { 
+                        this.wasmReducer.set_gate_threshold(value);
+                    }
+                    setGateEnabled(value) { 
+                        this.wasmReducer.set_gate_enabled(value);
+                    }
+                    setSpectralEnabled(value) { 
+                        this.wasmReducer.set_spectral_enabled(value);
+                    }
+                    setOverSubtractionFactor(value) { 
+                        // Direct mapping, no division needed - the WASM handles scaling internally
+                        this.wasmReducer.set_reduction_amount(value);
+                    }
+                    setSpectralFloor(value) { 
+                        // Spectral floor is now part of reduction_amount (beta parameter)
+                        // This is handled by set_reduction_amount
+                    }
+                    learnNoiseProfile(data) { 
+                        this.wasmReducer.learn_noise(data);
+                        console.log('[DEBUG] Learned noise profile from', data.length, 'samples');
+                    }
+                    reset() { 
+                        this.wasmReducer.reset();
+                    }
+                }
+                
+                // Initialize real noise reducer
+                window.noiseReducer = new RealNoiseReducer(window.audioContext.sampleRate);
+                
+                console.log('[DEBUG] Using REAL Rust WASM noise reducer');
+                
+                await window.noiseReducer.initialize();
+                
+                // Enable buttons
+                document.getElementById('processBtn').disabled = false;
+                document.getElementById('learnNoiseBtn').disabled = false;
+                
+                showStatus('wasmStatus', 'WASM module initialized successfully!', 'success');
+                console.log('NoiseReducer initialized:', window.noiseReducer);
+                
+            } catch (error) {
+                console.warn('[WARN] Failed to load WASM, using mock:', error);
+                
+                // Simple mock as fallback
+                window.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                window.noiseReducer = {
+                    async initialize() { return true; },
+                    async processFloat32Array(input) { return new Float32Array(input); },
+                    setGateThreshold() {},
+                    setGateEnabled() {},
+                    setSpectralEnabled() {},
+                    setOverSubtractionFactor() {},
+                    setSpectralFloor() {},
+                    learnNoiseProfile() { console.log('[DEBUG] Mock learn noise'); },
+                    reset() {}
+                };
+                
+                await window.noiseReducer.initialize();
+                
+                // Enable buttons anyway
+                document.getElementById('processBtn').disabled = false;
+                document.getElementById('learnNoiseBtn').disabled = false;
+                
+                showStatus('wasmStatus', 'Using fallback processor (WASM failed to load)', 'warning');
+            }
+    }  // End of initializeWasm function
+        
+        // Load audio file with diagnostics
+        window.loadAudio = async function() {
+            console.log('[DEBUG] loadAudio started');
+            const startTime = performance.now();
+            
+            const fileInput = document.getElementById('audioFile');
+            const urlInput = document.getElementById('audioUrl');
+            
+            let arrayBuffer;
+            
+            showStatus('loadStatus', 'Loading audio...', 'info', true);
+            
+            try {
+                if (fileInput.files.length > 0) {
+                    // Load from file
+                    const file = fileInput.files[0];
+                    console.log('[DEBUG] Loading file:', file.name, 'Size:', (file.size / 1024 / 1024).toFixed(2), 'MB');
+                    
+                    const fileStart = performance.now();
+                    arrayBuffer = await file.arrayBuffer();
+                    console.log('[DEBUG] File read took:', (performance.now() - fileStart).toFixed(2), 'ms');
+                    
+                } else if (urlInput.value) {
+                    // Load from URL
+                    console.log('[DEBUG] Loading from URL:', urlInput.value);
+                    const response = await fetch(urlInput.value);
+                    if (!response.ok) throw new Error('Failed to fetch audio');
+                    arrayBuffer = await response.arrayBuffer();
+                } else {
+                    showStatus('loadStatus', 'Please select a file or enter a URL', 'warning');
+                    return;
+                }
+                
+                console.log('[DEBUG] ArrayBuffer size:', (arrayBuffer.byteLength / 1024 / 1024).toFixed(2), 'MB');
+                
+                // Decode audio
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    console.log('[DEBUG] Created AudioContext, sample rate:', audioContext.sampleRate);
+                }
+                
+                const decodeStart = performance.now();
+                console.log('[DEBUG] Starting audio decode...');
+                
+                originalBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0)); // Use slice to avoid detached buffer
+                
+                console.log('[DEBUG] Decode took:', (performance.now() - decodeStart).toFixed(2), 'ms');
+                console.log('[DEBUG] Audio buffer - Duration:', originalBuffer.duration, 'Channels:', originalBuffer.numberOfChannels);
+                
+                // Display original audio - use setTimeout to avoid blocking
+                setTimeout(() => {
+                    displayStage('original', originalBuffer);
+                }, 0);
+                
+                const totalTime = performance.now() - startTime;
+                console.log('[DEBUG] Total load time:', totalTime.toFixed(2), 'ms');
+                
+                showStatus('loadStatus', `Audio loaded: ${originalBuffer.duration.toFixed(2)}s @ ${originalBuffer.sampleRate}Hz (${totalTime.toFixed(0)}ms)`, 'success');
+                
+            } catch (error) {
+                console.error('[ERROR] Audio loading failed:', error);
+                showStatus('loadStatus', `Failed to load audio: ${error.message}`, 'error');
+            }
+        }
+        
+        // Load sample audio files from real sources
+        window.loadSampleAudio = async function(type) {
+            // These are real audio file URLs you can use for testing
+            // You'll need to host these files or use publicly available ones
+            const sampleUrls = {
+                // Free sound samples from various sources (replace with actual URLs)
+                'cafe-noise': '/samples/cafe-noise.wav',  // You need to download and host these
+                'street-noise': '/samples/street-noise.wav',
+                'office-noise': '/samples/office-noise.wav', 
+                'white-noise': '/samples/white-noise.wav'
+            };
+            
+            // For demo, let's use a public domain audio file URL
+            // You can replace this with actual MS-SNSD files after downloading them
+            const demoUrl = 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav'; // Example public audio
+            
+            showStatus('loadStatus', `Loading ${type} audio from URL...`, 'info', true);
+            
+            try {
+                // Try to load from URL
+                const response = await fetch(sampleUrls[type] || demoUrl);
+                if (!response.ok) {
+                    throw new Error('Failed to fetch audio file');
+                }
+                
+                const arrayBuffer = await response.arrayBuffer();
+                
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                
+                originalBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                displayStage('original', originalBuffer);
+                
+                showStatus('loadStatus', `Loaded ${type}: ${originalBuffer.duration.toFixed(2)}s @ ${originalBuffer.sampleRate}Hz`, 'success');
+                
+            } catch (error) {
+                // If loading fails, show instructions for getting real audio files
+                showStatus('loadStatus', 
+                    `Could not load ${type}. Please download MS-SNSD dataset from GitHub (microsoft/MS-SNSD) ` +
+                    `and host the files locally, or use the file upload option to load your own noisy audio files.`, 
+                    'warning'
+                );
+                
+                // Provide instructions
+                alert(
+                    `To use real audio samples:\n\n` +
+                    `1. Download MS-SNSD dataset:\n` +
+                    `   git clone https://github.com/microsoft/MS-SNSD.git\n\n` +
+                    `2. Copy noise files to your project:\n` +
+                    `   - noise_test/*.wav files\n` +
+                    `   - clean_test/*.wav files\n\n` +
+                    `3. Or use the file upload button to load any .wav or .mp3 file\n\n` +
+                    `4. Or try these free sources:\n` +
+                    `   - freesound.org (search for CC0 licensed sounds)\n` +
+                    `   - archive.org/details/opensource_audio\n` +
+                    `   - zapsplat.com (free with account)`
+                );
+            }
+        }
+        
+        // Generate synthetic noisy audio for testing
+        function generateSyntheticNoisyAudio(noiseType) {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            
+            showStatus('loadStatus', 'Generating synthetic audio...', 'info', true);
+            
+            // Use shorter duration and lower sample rate for performance
+            const duration = 2; // seconds (reduced from 5)
+            const sampleRate = 22050; // Lower sample rate for faster generation
+            const length = duration * sampleRate;
+            
+            // Create buffer at lower sample rate
+            originalBuffer = audioContext.createBuffer(1, length, sampleRate);
+            const data = originalBuffer.getChannelData(0);
+            
+            // Pre-calculate constants
+            const twoPi = 2 * Math.PI;
+            
+            // Use setTimeout to avoid blocking the UI
+            setTimeout(() => {
+                // Simplified generation for better performance
+                for (let i = 0; i < length; i++) {
+                    const t = i / sampleRate;
+                    
+                    // Simple speech simulation (single frequency)
+                    let signal = 0.3 * Math.sin(twoPi * 200 * t);
+                    
+                    // Simple envelope
+                    if (i % 4410 < 2205) { // On/off pattern every 0.2 seconds
+                        signal *= 0.8;
+                    }
+                    
+                    // Add noise based on type (simplified)
+                    let noise = 0;
+                    switch(noiseType) {
+                        case 'white-noise':
+                            noise = (Math.random() - 0.5) * 0.2;
+                            break;
+                        case 'cafe-noise':
+                            noise = (Math.random() - 0.5) * 0.15;
+                            break;
+                        case 'street-noise':
+                            noise = (Math.random() - 0.5) * 0.1 + 0.05 * Math.sin(twoPi * 30 * t);
+                            break;
+                        case 'office-noise':
+                            noise = (Math.random() - 0.5) * 0.08;
+                            break;
+                    }
+                    
+                    data[i] = signal + noise;
+                }
+                
+                // Display after generation is complete
+                displayStage('original', originalBuffer);
+                showStatus('loadStatus', `Generated ${noiseType} test audio: ${duration}s @ ${sampleRate}Hz`, 'success');
+            }, 10);
+            
+            // Display original
+            displayStage('original', originalBuffer);
+            showStatus('loadStatus', `Generated ${noiseType} test audio: ${duration}s @ ${sampleRate}Hz`, 'success');
+        }
+        
+        // Process audio through all stages with optimizations
+        window.processAudio = async function() {
+            if (!originalBuffer || !noiseReducer) {
+                showStatus('wasmStatus', 'Please load audio and initialize WASM first', 'warning');
+                return;
+            }
+            
+            console.log('[DEBUG] processAudio started');
+            showStatus('wasmStatus', 'Processing audio through stages...', 'info', true);
+            
+            const startTime = performance.now();
+            
+            try {
+                // Update configuration
+                const reductionAmount = parseFloat(document.getElementById('reductionAmount').value);
+                const gateThreshold = parseFloat(document.getElementById('gateThreshold').value);
+                const spectralFloor = parseFloat(document.getElementById('spectralFloor').value);
+                const processingMode = document.getElementById('processingMode').value;
+                
+                console.log('[DEBUG] Processing mode:', processingMode);
+                console.log('[DEBUG] Settings - Reduction:', reductionAmount, 'Threshold:', gateThreshold);
+                
+                // Configure the noise reducer based on processing mode
+                noiseReducer.setGateThreshold(gateThreshold);
+                noiseReducer.setOverSubtractionFactor(reductionAmount); // Direct value, WASM handles scaling
+                noiseReducer.setSpectralFloor(spectralFloor);
+                
+                // Set processing modes
+                switch(processingMode) {
+                    case 'full':
+                        noiseReducer.setGateEnabled(true);
+                        noiseReducer.setSpectralEnabled(true);
+                        break;
+                    case 'gate-only':
+                        noiseReducer.setGateEnabled(true);
+                        noiseReducer.setSpectralEnabled(false);
+                        break;
+                    case 'spectral-only':
+                        noiseReducer.setGateEnabled(false);
+                        noiseReducer.setSpectralEnabled(true);
+                        break;
+                    case 'bypass':
+                        noiseReducer.bypass = true;
+                        break;
+                }
+                
+                // Get input data - limit to 10 seconds for performance
+                let inputData = originalBuffer.getChannelData(0);
+                const maxSamples = originalBuffer.sampleRate * 10; // 10 seconds max
+                if (inputData.length > maxSamples) {
+                    console.log('[DEBUG] Limiting processing to first 10 seconds for performance');
+                    inputData = inputData.slice(0, maxSamples);
+                }
+                console.log('[DEBUG] Input data length:', inputData.length);
+                
+                // Process with current settings
+                await new Promise(resolve => setTimeout(resolve, 0)); // Yield to UI
+                console.log('[DEBUG] Processing audio with current settings');
+                const processingStart = performance.now();
+                
+                // Process the audio once with current settings
+                const processedData = await noiseReducer.processFloat32Array(inputData);
+                
+                console.log('[DEBUG] Processing took:', (performance.now() - processingStart).toFixed(2), 'ms');
+                
+                // Create buffers for display
+                // For demo purposes, show the same processed result in all stages
+                // since we're not actually processing stages separately anymore
+                const processedBuffer = audioContext.createBuffer(1, processedData.length, originalBuffer.sampleRate);
+                processedBuffer.copyToChannel(processedData, 0);
+                
+                // Display in appropriate stages based on mode
+                if (processingMode === 'gate-only') {
+                    // Show gate effect
+                    requestAnimationFrame(() => displayStage('gate', processedBuffer));
+                    // Show original for spectral (no spectral applied)
+                    const spectralBuffer = audioContext.createBuffer(1, inputData.length, originalBuffer.sampleRate);
+                    spectralBuffer.copyToChannel(inputData, 0);
+                    requestAnimationFrame(() => displayStage('spectral', spectralBuffer));
+                } else if (processingMode === 'spectral-only') {
+                    // Show original for gate (no gate applied)
+                    const gateBuffer = audioContext.createBuffer(1, inputData.length, originalBuffer.sampleRate);
+                    gateBuffer.copyToChannel(inputData, 0);
+                    requestAnimationFrame(() => displayStage('gate', gateBuffer));
+                    // Show spectral effect
+                    requestAnimationFrame(() => displayStage('spectral', processedBuffer));
+                } else if (processingMode === 'full') {
+                    // For full mode, show intermediate simulated stages
+                    // Note: These are simulations since we process all at once
+                    requestAnimationFrame(() => displayStage('gate', processedBuffer));
+                    requestAnimationFrame(() => displayStage('spectral', processedBuffer));
+                } else {
+                    // Bypass mode - show original in all stages
+                    const bypassBuffer = audioContext.createBuffer(1, inputData.length, originalBuffer.sampleRate);
+                    bypassBuffer.copyToChannel(inputData, 0);
+                    requestAnimationFrame(() => displayStage('gate', bypassBuffer));
+                    requestAnimationFrame(() => displayStage('spectral', bypassBuffer));
+                }
+                
+                // Final stage always shows the processed result
+                const finalBuffer = processedBuffer;
+                
+                requestAnimationFrame(() => displayStage('final', finalBuffer));
+                
+                // Calculate metrics asynchronously
+                const processingTime = performance.now() - startTime;
+                
+                requestAnimationFrame(() => {
+                    updateMetrics(originalBuffer, finalBuffer, processingTime);
+                    
+                    // Update stage info
+                    document.getElementById('spectral-profile').textContent = noiseProfileLearned ? 'Learned' : 'Not Learned';
+                    document.getElementById('spectral-factor').textContent = reductionAmount.toFixed(2);
+                });
+                
+                console.log('[DEBUG] Total processing time:', processingTime.toFixed(2), 'ms');
+                showStatus('wasmStatus', `Processing complete in ${processingTime.toFixed(2)}ms`, 'success');
+                
+            } catch (error) {
+                console.error('[ERROR] Processing failed:', error);
+                showStatus('wasmStatus', `Processing failed: ${error.message}`, 'error');
+            }
+        }
+        
+        // Learn noise profile from first second
+        window.learnNoiseProfile = async function() {
+            if (!originalBuffer || !noiseReducer) {
+                showStatus('wasmStatus', 'Please load audio and initialize WASM first', 'warning');
+                return;
+            }
+            
+            showStatus('wasmStatus', 'Learning noise profile...', 'info', true);
+            
+            try {
+                // Get first second of audio
+                const sampleRate = originalBuffer.sampleRate;
+                const firstSecondLength = Math.min(sampleRate, originalBuffer.length);
+                const noiseData = originalBuffer.getChannelData(0).slice(0, firstSecondLength);
+                
+                // Learn noise profile
+                noiseReducer.learnNoiseProfile(noiseData);
+                noiseProfileLearned = true;
+                
+                document.getElementById('spectral-profile').textContent = 'Learned';
+                showStatus('wasmStatus', 'Noise profile learned from first 1s of audio', 'success');
+                
+            } catch (error) {
+                console.error('Noise learning error:', error);
+                showStatus('wasmStatus', `Failed to learn noise: ${error.message}`, 'error');
+            }
+        }
+        
+        // Display stage results with performance optimizations
+        function displayStage(stageName, audioBuffer) {
+            console.log(`[DEBUG] displayStage ${stageName} started`);
+            const displayStart = performance.now();
+            
+            const audioElement = document.getElementById(`${stageName}-audio`);
+            const canvas = document.getElementById(`${stageName}-waveform`);
+            
+            // Get channel data once
+            const data = audioBuffer.getChannelData(0);
+            console.log(`[DEBUG] ${stageName} data length:`, data.length);
+            
+            // Skip WAV conversion for now - just store the buffer for Web Audio playback
+            // This avoids the expensive conversion that's freezing the page
+            if (!window.audioBuffers) window.audioBuffers = {};
+            window.audioBuffers[stageName] = audioBuffer;
+            
+            // Add a play button instead of audio element
+            const playButton = document.createElement('button');
+            playButton.textContent = '▶ Play';
+            playButton.onclick = () => playAudioBuffer(stageName);
+            
+            // Replace audio element with play button if not already done
+            if (!audioElement.dataset.replaced) {
+                audioElement.style.display = 'none';
+                audioElement.parentNode.insertBefore(playButton, audioElement.nextSibling);
+                audioElement.dataset.replaced = 'true';
+            }
+            
+            // Calculate metrics (subsample for performance)
+            const metricsStart = performance.now();
+            const step = Math.max(1, Math.floor(data.length / 10000)); // Sample at most 10k points
+            const rms = calculateRMSOptimized(data, step);
+            const peak = calculatePeakOptimized(data, step);
+            console.log(`[DEBUG] Metrics calculation took:`, (performance.now() - metricsStart).toFixed(2), 'ms');
+            
+            // Update info
+            if (stageName === 'original') {
+                document.getElementById('original-duration').textContent = `${audioBuffer.duration.toFixed(2)}s`;
+                document.getElementById('original-samplerate').textContent = `${audioBuffer.sampleRate} Hz`;
+            }
+            
+            document.getElementById(`${stageName}-rms`).textContent = `${(20 * Math.log10(rms)).toFixed(1)} dB`;
+            document.getElementById(`${stageName}-peak`).textContent = `${(20 * Math.log10(peak)).toFixed(1)} dB`;
+            
+            // Draw waveform asynchronously
+            requestAnimationFrame(() => {
+                const waveformStart = performance.now();
+                drawWaveformOptimized(canvas, data);
+                console.log(`[DEBUG] Waveform drawing took:`, (performance.now() - waveformStart).toFixed(2), 'ms');
+            });
+            
+            // Store processed buffer
+            processedStages[stageName] = audioBuffer;
+            
+            // Highlight active stage
+            document.getElementById(`stage-${stageName}`).classList.add('active');
+            setTimeout(() => {
+                document.getElementById(`stage-${stageName}`).classList.remove('active');
+            }, 500);
+            
+            console.log(`[DEBUG] displayStage ${stageName} total time:`, (performance.now() - displayStart).toFixed(2), 'ms');
+        }
+        
+        // Optimized RMS calculation
+        function calculateRMSOptimized(data, step = 1) {
+            let sum = 0;
+            let count = 0;
+            for (let i = 0; i < data.length; i += step) {
+                sum += data[i] * data[i];
+                count++;
+            }
+            return Math.sqrt(sum / count);
+        }
+        
+        // Optimized peak calculation  
+        function calculatePeakOptimized(data, step = 1) {
+            let peak = 0;
+            for (let i = 0; i < data.length; i += step) {
+                peak = Math.max(peak, Math.abs(data[i]));
+            }
+            return peak;
+        }
+        
+        // Calculate RMS
+        function calculateRMS(data) {
+            let sum = 0;
+            for (let i = 0; i < data.length; i++) {
+                sum += data[i] * data[i];
+            }
+            return Math.sqrt(sum / data.length);
+        }
+        
+        // Calculate peak
+        function calculatePeak(data) {
+            let peak = 0;
+            for (let i = 0; i < data.length; i++) {
+                peak = Math.max(peak, Math.abs(data[i]));
+            }
+            return peak;
+        }
+        
+        // Draw waveform
+        function drawWaveform(canvas, data) {
+            drawWaveformOptimized(canvas, data);
+        }
+        
+        // Optimized waveform drawing
+        function drawWaveformOptimized(canvas, data) {
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width = canvas.offsetWidth || 300;
+            const height = canvas.height = canvas.offsetHeight || 100;
+            
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(0, 0, width, height);
+            
+            // Don't draw if no data
+            if (!data || data.length === 0) return;
+            
+            ctx.strokeStyle = '#ffd700';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            
+            // Limit processing for very large files
+            const maxSamples = 10000; // Process at most 10k samples
+            const step = Math.max(1, Math.ceil(data.length / maxSamples));
+            const samplesPerPixel = Math.ceil(data.length / step / width);
+            
+            const amp = height / 2;
+            
+            for (let px = 0; px < width; px++) {
+                const startIdx = px * samplesPerPixel * step;
+                const endIdx = Math.min(startIdx + samplesPerPixel * step, data.length);
+                
+                if (startIdx >= data.length) break;
+                
+                let min = 1.0;
+                let max = -1.0;
+                
+                // Find min/max in this pixel's range
+                for (let i = startIdx; i < endIdx; i += step) {
+                    const sample = data[i];
+                    if (sample < min) min = sample;
+                    if (sample > max) max = sample;
+                }
+                
+                ctx.moveTo(px, (1 + min) * amp);
+                ctx.lineTo(px, (1 + max) * amp);
+            }
+            
+            ctx.stroke();
+        }
+        
+        // Convert AudioBuffer to WAV
+        function audioBufferToWav(buffer) {
+            const length = buffer.length * buffer.numberOfChannels * 2;
+            const arrayBuffer = new ArrayBuffer(44 + length);
+            const view = new DataView(arrayBuffer);
+            
+            // WAV header
+            const writeString = (offset, string) => {
+                for (let i = 0; i < string.length; i++) {
+                    view.setUint8(offset + i, string.charCodeAt(i));
+                }
+            };
+            
+            writeString(0, 'RIFF');
+            view.setUint32(4, 36 + length, true);
+            writeString(8, 'WAVE');
+            writeString(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, buffer.numberOfChannels, true);
+            view.setUint32(24, buffer.sampleRate, true);
+            view.setUint32(28, buffer.sampleRate * buffer.numberOfChannels * 2, true);
+            view.setUint16(32, buffer.numberOfChannels * 2, true);
+            view.setUint16(34, 16, true);
+            writeString(36, 'data');
+            view.setUint32(40, length, true);
+            
+            // Convert float samples to 16-bit PCM
+            let offset = 44;
+            for (let i = 0; i < buffer.length; i++) {
+                for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+                    const sample = buffer.getChannelData(channel)[i];
+                    const int16 = Math.max(-32768, Math.min(32767, sample * 32768));
+                    view.setInt16(offset, int16, true);
+                    offset += 2;
+                }
+            }
+            
+            return arrayBuffer;
+        }
+        
+        // Update performance metrics
+        function updateMetrics(originalBuffer, finalBuffer, processingTime) {
+            const originalData = originalBuffer.getChannelData(0);
+            const finalData = finalBuffer.getChannelData(0);
+            
+            const originalRMS = calculateRMS(originalData);
+            const finalRMS = calculateRMS(finalData);
+            
+            const noiseReduction = 20 * Math.log10(finalRMS / originalRMS);
+            const cpuUsage = (processingTime / (originalBuffer.duration * 1000)) * 100;
+            
+            // Calculate quality score (simplified metric)
+            const qualityScore = Math.min(100, Math.max(0, 
+                100 - Math.abs(noiseReduction) * 2 - cpuUsage
+            ));
+            
+            document.getElementById('processing-time').textContent = processingTime.toFixed(1);
+            document.getElementById('cpu-usage').textContent = cpuUsage.toFixed(1);
+            document.getElementById('noise-reduction').textContent = noiseReduction.toFixed(1);
+            document.getElementById('quality-score').textContent = qualityScore.toFixed(0);
+            
+            // Update final stage info
+            document.getElementById('final-reduction').textContent = `${Math.abs(noiseReduction).toFixed(1)} dB`;
+            document.getElementById('final-snr').textContent = `+${Math.max(0, -noiseReduction).toFixed(1)} dB`;
+            
+            // Update gate info
+            const gateReduction = processedStages.gate ? 
+                20 * Math.log10(calculateRMS(processedStages.gate.getChannelData(0)) / originalRMS) : 0;
+            document.getElementById('gate-reduction').textContent = `${Math.abs(gateReduction).toFixed(1)} dB`;
+            document.getElementById('gate-active').textContent = gateReduction < -1 ? 'Yes' : 'No';
+        }
+        
+        // Show status message
+        function showStatus(elementId, message, type, showLoader = false) {
+            const element = document.getElementById(elementId);
+            element.style.display = 'block';
+            element.className = `status ${type}`;
+            element.innerHTML = message + (showLoader ? '<span class="loader"></span>' : '');
+            
+            if (type === 'success' || type === 'warning') {
+                setTimeout(() => {
+                    element.style.display = 'none';
+                }, 5000);
+            }
+        }
+        
+        // Auto-initialize on page load
+        window.addEventListener('load', () => {
+            // Check for WASM support
+            if (!window.WebAssembly) {
+                showStatus('wasmStatus', 'WebAssembly is not supported in this browser', 'error');
+                document.getElementById('initWasmBtn').disabled = true;
+            }
+        });
+    </script>
+</body>
+</html>

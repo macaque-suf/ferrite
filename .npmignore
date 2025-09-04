@@ -1,0 +1,39 @@
+# Source files (only publish built artifacts)
+audio-processor-core/
+packages/
+demo/
+scripts/
+
+# Development files
+*.log
+*.md
+!README.md
+.github/
+.git/
+.DS_Store
+
+# Build artifacts we don't need
+node_modules/
+target/
+*.lock
+!package-lock.json
+
+# Test files
+test/
+tests/
+*.test.*
+*.spec.*
+
+# Config files
+.gitignore
+.editorconfig
+tsconfig.json
+vite.config.ts
+
+# Documentation
+docs/
+*.pdf
+TESTING_STATUS.md
+TEST_GUIDE.md
+QUICK_TEST.md
+requirements.md

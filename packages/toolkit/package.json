@@ -1,6 +1,20 @@
 {
+  "name": "@wasm-audio-ferrite/toolkit",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:watch": "vitest watch",
+    "test:coverage": "vitest run --coverage",
+    "build": "tsc"
+  },
   "devDependencies": {
     "@types/node": "^24.3.0",
-    "typescript": "^5.9.2"
+    "@vitest/ui": "^1.0.0",
+    "jsdom": "^23.0.0",
+    "typescript": "^5.9.2",
+    "vite": "^5.0.0",
+    "vitest": "^1.0.0"
   }
 }

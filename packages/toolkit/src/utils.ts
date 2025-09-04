@@ -13,6 +13,8 @@ export function createAudioBuffer(
 ): AudioBuffer {
   const ctx = getAudioContext();
   const buffer = ctx.createBuffer(1, data.length, sampleRate);
-  buffer.copyToChannel(data, 0);
+  // Create a new Float32Array to ensure correct type
+  const channelData = new Float32Array(data);
+  buffer.copyToChannel(channelData, 0);
   return buffer;
 }

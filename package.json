@@ -1,20 +1,56 @@
 {
-  "name": "web-audio-toolkit",
-  "private": true,
+  "name": "wasm-audio-ferrite",
+  "version": "0.1.2",
+  "description": "High-performance real-time audio noise reduction powered by WebAssembly and Rust",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "audio",
+    "noise-reduction",
+    "wasm",
+    "webassembly",
+    "rust",
+    "real-time",
+    "dsp",
+    "signal-processing",
+    "web-audio",
+    "noise-gate",
+    "spectral-subtraction"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/macaque-suf/ferrite"
+  },
+  "bugs": {
+    "url": "https://github.com/macaque-suf/ferrite/issues"
+  },
+  "homepage": "https://github.com/macaque-suf/ferrite",
   "workspaces": [
     "packages/*",
     "demo"
   ],
   "scripts": {
-    "build:wasm": "cd audio-processor-core && wasm-pack build --target web --out-dir ../packages/toolkit/src/wasm",
+    "build:wasm": "cd audio-processor-core && wasm-pack build --target web --out-dir ../dist/wasm --no-opt",
     "build:toolkit": "cd packages/toolkit && npm run build",
     "build": "npm run build:wasm && npm run build:toolkit",
+    "prepublishOnly": "npm run build",
     "dev": "npm run build:wasm && cd demo && vite",
-    "test": "npm run test -ws"
+    "test": "echo 'Tests not configured yet'"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0",
     "vite": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
   }
 }

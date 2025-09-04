@@ -9,18 +9,49 @@
 //! - Variable ratio for expansion vs hard gating
 
 use crate::utils::{
-    db_to_linear, linear_to_db, EnvelopeFollower, ParameterSmoother, 
-    calculate_rms, clamp, lerp, DENORMAL_PREVENTION
+    db_to_linear, linear_to_db, EnvelopeFollower, DualRateParameterSmoother, 
+    lerp, DENORMAL_PREVENTION
 };
-use crate::ring_buffer::RingBuffer;
+use crate::ring_buffer::{Producer, Consumer, spsc_ring_buffer};
+
+/// Lookahead buffer combining Producer and Consumer for delay line functionality
+struct LookaheadBuffer {
+    producer: Producer,
+    consumer: Consumer,
+}
+
+impl LookaheadBuffer {
+    fn new(size: usize) -> Option<Self> {
+        match spsc_ring_buffer(size) {
+            Ok((producer, consumer)) => Some(LookaheadBuffer { producer, consumer }),
+            Err(_) => None,
+        }
+    }
+    
+    fn write(&mut self, samples: &[f32]) -> Result<(), ()> {
+        self.producer.write(samples).map(|_| ()).map_err(|_| ())
+    }
+    
+    fn read(&mut self, output: &mut [f32]) -> Result<(), ()> {
+        self.consumer.read(output).map(|_| ()).map_err(|_| ())
+    }
+    
+    fn reset(&mut self) {
+        // Reset by draining all available data
+        let mut drain_buffer = vec![0.0; 1024];
+        while self.consumer.available() > 0 {
+            let _ = self.consumer.read(&mut drain_buffer);
+        }
+    }
+}
 
 /// Default values for noise gate parameters
 pub mod defaults {
     pub const THRESHOLD_DB: f32 = -40.0;
-    pub const RATIO: f32 = 10.0;
-    pub const ATTACK_MS: f32 = 5.0;
-    pub const RELEASE_MS: f32 = 100.0;
-    pub const HOLD_MS: f32 = 10.0;
+    pub const RATIO: f32 = 4.0;  // Reduced from 10.0 for more natural gating
+    pub const ATTACK_MS: f32 = 2.0;  // Faster attack to preserve transients
+    pub const RELEASE_MS: f32 = 200.0;  // Increased from 100ms for smoother fade
+    pub const HOLD_MS: f32 = 30.0;  // Increased from 10ms to prevent stuttering
     pub const LOOKAHEAD_MS: f32 = 5.0;
     pub const HYSTERESIS_DB: f32 = 3.0;
     pub const KNEE_WIDTH_DB: f32 = 2.0;
@@ -89,6 +120,12 @@ pub struct NoiseGateConfig {
     /// RMS window size in milliseconds (for RMS mode)
     pub rms_window_ms: f32,
     
+    /// Gate attack time in milliseconds (for gain smoothing)
+    pub gate_attack_ms: f32,
+    
+    /// Gate release time in milliseconds (for gain smoothing)
+    pub gate_release_ms: f32,
+    
     /// Sample rate
     pub sample_rate: f32,
 }
@@ -107,6 +144,8 @@ impl Default for NoiseGateConfig {
             knee_width_db: defaults::KNEE_WIDTH_DB,
             detection_mode: DetectionMode::Peak,
             rms_window_ms: defaults::RMS_WINDOW_MS,
+            gate_attack_ms: 5.0,  // 5ms for smoother opening without cutting transients
+            gate_release_ms: 150.0,  // 150ms for natural fade, prevents choppy sound
             sample_rate: 48000.0,
         }
     }
@@ -158,8 +197,8 @@ pub struct NoiseGate {
     // Envelope follower for signal detection
     envelope_follower: EnvelopeFollower,
     
-    // Gain smoothing
-    gain_smoother: ParameterSmoother,
+    // Gain smoothing with dual rates
+    gain_smoother: DualRateParameterSmoother,
     current_gain: f32,
     target_gain: f32,
     
@@ -168,8 +207,7 @@ pub struct NoiseGate {
     hold_counter: usize,
     
     // Lookahead buffer (if enabled)
-    lookahead_temp: [f32; 1],
-    lookahead_buffer: Option<RingBuffer>,
+    lookahead_buffer: Option<LookaheadBuffer>,
     lookahead_samples: usize,
     
     // RMS detection buffer (if using RMS mode)
@@ -198,9 +236,10 @@ impl NoiseGate {
         );
         
         // Start with gate closed (gain = 0)
-        let gain_smoother = ParameterSmoother::new(
+        let gain_smoother = DualRateParameterSmoother::new(
             0.0,
-            1.0, // 1ms smoothing for click prevention
+            config.gate_attack_ms,
+            config.gate_release_ms,
             config.sample_rate,
         );
         
@@ -211,7 +250,7 @@ impl NoiseGate {
             let samples = ((config.lookahead_ms * 0.001 * config.sample_rate) as usize).max(1);
             let buffer_size = samples.next_power_of_two() * 2; // Extra space for safety
             (
-                RingBuffer::new(buffer_size).ok(),
+                LookaheadBuffer::new(buffer_size),
                 samples,
             )
         } else {
@@ -233,7 +272,6 @@ impl NoiseGate {
             target_gain: 0.0,
             hold_samples,
             hold_counter: 0,
-            lookahead_temp: [0.0; 1],
             lookahead_buffer,
             lookahead_samples,
             rms_buffer,
@@ -249,16 +287,20 @@ impl NoiseGate {
     
     /// Process a single sample
     pub fn process_sample(&mut self, input: f32) -> f32 {
-        // ALWAYS process detection on current (non-delayed) sample for lookahead
+        // 1) Detector on the current (non-delayed) sample
         let detection_signal = self.get_detection_signal(input);
         let envelope = self.envelope_follower.process(detection_signal);
-        self.update_state(envelope);
+        
+        // 2) Compute & set target gain
         self.target_gain = self.calculate_gain(envelope);
         self.gain_smoother.set_target(self.target_gain);
+        
+        // 3) Advance gain smoother, then update state
         self.current_gain = self.gain_smoother.next();
+        self.update_state(envelope);
 
-        // Apply gain to DELAYED audio if lookahead enabled
-        let output = if let Some(ref buffer) = self.lookahead_buffer {
+        // 4) Apply gain to delayed audio if lookahead enabled
+        let output = if let Some(ref mut buffer) = self.lookahead_buffer {
             // Write current sample to delay line
             buffer.write(&[input]).ok();
 
@@ -309,6 +351,29 @@ impl NoiseGate {
             let gain_db = output_db - envelope_db;
             db_to_linear(gain_db).clamp(0.0, 1.0)
         }
+    }
+    
+    /// Calculate ratio gain in linear domain (fast path for hard knee)
+    /// This implements a gate as a high-ratio downward expander
+    #[inline]
+    fn calculate_ratio_gain_linear(&self, envelope: f32) -> f32 {
+        // Early returns for special cases
+        if self.config.ratio <= 1.0 { 
+            return 1.0;  // No gating
+        }
+        if envelope >= self.open_threshold_linear { 
+            return 1.0;  // Above threshold - fully open
+        }
+        if self.config.ratio >= 100.0 { 
+            return 0.0;  // Infinite ratio - hard gate
+        }
+        
+        // Calculate gain using linear domain math
+        // For envelope E <= threshold T with ratio R:
+        // gain = (E/T)^(R-1)
+        let x = (envelope / self.open_threshold_linear).max(0.0);
+        let r_minus_1 = self.config.ratio - 1.0;
+        x.powf(r_minus_1).clamp(0.0, 1.0)
     }
     
     /// Get detection signal based on detection mode
@@ -408,16 +473,13 @@ impl NoiseGate {
     /// Calculate gain based on envelope and threshold
     #[inline]
     fn calculate_gain(&self, envelope: f32) -> f32 {
-        let envelope_db = linear_to_db(envelope);
-
         if self.config.soft_knee {
+            // Soft knee requires dB calculations
+            let envelope_db = linear_to_db(envelope);
             self.calculate_soft_knee_gain(envelope_db)
         } else {
-            if envelope_db >= self.config.threshold_db {
-                1.0
-            } else {
-                self.calculate_ratio_gain(envelope_db)
-            }
+            // Hard knee can use fast linear domain calculation
+            self.calculate_ratio_gain_linear(envelope)
         }
     }
     
@@ -497,7 +559,7 @@ impl NoiseGate {
             if config.lookahead_ms > 0.0 {
                 let samples = ((config.lookahead_ms * 0.001 * config.sample_rate) as usize).max(1);
                 let buffer_size = samples.next_power_of_two() * 2;
-                self.lookahead_buffer = RingBuffer::new(buffer_size).ok();
+                self.lookahead_buffer = LookaheadBuffer::new(buffer_size);
                 self.lookahead_samples = samples;
             } else {
                 self.lookahead_buffer = None;
@@ -525,9 +587,7 @@ impl NoiseGate {
         self.hold_counter = 0;
 
         if let Some(ref mut buffer) = self.lookahead_buffer {
-            // If reset is unsafe in your RingBuffer implementation:
-            unsafe { buffer.reset(); }
-            // Otherwise just: buffer.reset();
+            buffer.reset();
         }
 
         self.rms_buffer.fill(0.0);
@@ -604,49 +664,80 @@ impl StereoNoiseGate {
     
     /// Process stereo samples
     pub fn process_stereo(&mut self, left_in: f32, right_in: f32) -> (f32, f32) {
-        if self.linked {
-            // Linked mode - use combined detection
-            let detection_signal = match self.link_mode {
-                LinkMode::Maximum => left_in.abs().max(right_in.abs()),
-                LinkMode::Average => (left_in.abs() + right_in.abs()) / 2.0,
-                LinkMode::LeftOnly => left_in.abs(),
-                LinkMode::RightOnly => right_in.abs(),
-            };
-            
-            // Update both envelopes with same signal for synchronized detection
-            let envelope = self.left_gate.envelope_follower.process(detection_signal);
-            self.right_gate.envelope_follower.process(detection_signal);
-            
-            // Update both gates' states using the same envelope
-            self.left_gate.update_state(envelope);
-            self.right_gate.update_state(envelope);
-            
-            // Calculate gain (will be same for both since they have same envelope)
-            let gain = self.left_gate.calculate_gain(envelope);
-            self.left_gate.target_gain = gain;
-            self.right_gate.target_gain = gain;
-            
-            // Smooth gain changes
-            self.left_gate.gain_smoother.set_target(gain);
-            self.left_gate.current_gain = self.left_gate.gain_smoother.next();
-            self.right_gate.gain_smoother.set_target(gain);
-            self.right_gate.current_gain = self.right_gate.gain_smoother.next();
-            
-            // Apply gain to both channels
-            let left_out = left_in * self.left_gate.current_gain + DENORMAL_PREVENTION;
-            let right_out = right_in * self.right_gate.current_gain + DENORMAL_PREVENTION;
-            
-            // Update statistics
-            self.left_gate.update_statistics();
-            self.right_gate.update_statistics();
-            
-            (left_out, right_out)
-        } else {
+        if !self.linked {
             // Unlinked mode - independent processing
             let left_out = self.left_gate.process_sample(left_in);
             let right_out = self.right_gate.process_sample(right_in);
-            (left_out, right_out)
+            return (left_out, right_out);
         }
+        
+        // Linked mode - use combined detection that respects detection mode
+        
+        // 1) Per-channel detectors (respect detection mode / RMS window)
+        let left_detection = self.left_gate.get_detection_signal(left_in);
+        let right_detection = self.right_gate.get_detection_signal(right_in);
+        
+        // 2) Link the detector outputs
+        let linked_detection = match self.link_mode {
+            LinkMode::Maximum => left_detection.max(right_detection),
+            LinkMode::Average => 0.5 * (left_detection + right_detection),
+            LinkMode::LeftOnly => left_detection,
+            LinkMode::RightOnly => right_detection,
+        };
+        
+        // 3) Process both envelopes with the same linked detector signal
+        let envelope = self.left_gate.envelope_follower.process(linked_detection);
+        self.right_gate.envelope_follower.process(linked_detection);
+        
+        // 4) Calculate one gain for both channels
+        let gain = self.left_gate.calculate_gain(envelope);
+        
+        // Update both gates with the same gain
+        for gate in [&mut self.left_gate, &mut self.right_gate].iter_mut() {
+            gate.target_gain = gain;
+            gate.gain_smoother.set_target(gain);
+            gate.current_gain = gate.gain_smoother.next();
+            gate.update_state(envelope);
+        }
+        
+        // 5) Apply lookahead per channel (identical to mono path)
+        let left_out = if let Some(ref mut buffer) = self.left_gate.lookahead_buffer {
+            // Write current sample to lookahead buffer
+            buffer.write(&[left_in]).ok();
+            
+            // If we have enough samples buffered, read the delayed sample
+            if self.left_gate.total_samples_processed >= self.left_gate.lookahead_samples as u64 {
+                let mut delayed = [0.0; 1];
+                buffer.read(&mut delayed).ok();
+                delayed[0] * self.left_gate.current_gain
+            } else {
+                0.0
+            }
+        } else {
+            left_in * self.left_gate.current_gain
+        };
+        
+        let right_out = if let Some(ref mut buffer) = self.right_gate.lookahead_buffer {
+            // Write current sample to lookahead buffer
+            buffer.write(&[right_in]).ok();
+            
+            // If we have enough samples buffered, read the delayed sample
+            if self.right_gate.total_samples_processed >= self.right_gate.lookahead_samples as u64 {
+                let mut delayed = [0.0; 1];
+                buffer.read(&mut delayed).ok();
+                delayed[0] * self.right_gate.current_gain
+            } else {
+                0.0
+            }
+        } else {
+            right_in * self.right_gate.current_gain
+        };
+        
+        // 6) Update statistics
+        self.left_gate.update_statistics();
+        self.right_gate.update_statistics();
+        
+        (left_out + DENORMAL_PREVENTION, right_out + DENORMAL_PREVENTION)
     }
     
     /// Set link mode
@@ -663,7 +754,6 @@ impl StereoNoiseGate {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::utils::linear_to_db;
         
         #[test]
         fn test_noise_gate_creation() {
@@ -1093,5 +1183,159 @@ impl StereoNoiseGate {
             // Mixed mode should respond to both sustained and transient content
             let stats = gate.get_stats();
             assert!(stats.gate_open_count > 0, "Gate should have opened at least once");
+        }
+        
+        #[test]
+        fn test_linked_vs_unlinked_stereo_parity_rms() {
+            // Test that linked stereo produces identical gains for both channels
+            // while unlinked allows different gains
+            
+            let mut config = NoiseGateConfig::with_sample_rate(48000.0);
+            config.threshold_db = -20.0;
+            config.detection_mode = DetectionMode::Rms;
+            config.rms_window_ms = 10.0;
+            config.attack_ms = 1.0;
+            config.release_ms = 10.0;
+            
+            // Create quiet left channel and loud right channel signals
+            let quiet_signal = db_to_linear(-30.0); // Below threshold
+            let loud_signal = db_to_linear(-10.0);  // Above threshold
+            
+            // Test linked mode - both channels should get the same gain
+            let mut linked_gate = StereoNoiseGate::new(config.clone(), true);
+            
+            // Process several samples to let RMS window fill
+            let mut left_gains_linked = Vec::new();
+            let mut right_gains_linked = Vec::new();
+            
+            for _ in 0..1000 {
+                linked_gate.process_stereo(quiet_signal, loud_signal);
+            }
+            
+            // Collect gains over next samples
+            for _ in 0..100 {
+                linked_gate.process_stereo(quiet_signal, loud_signal);
+                left_gains_linked.push(linked_gate.left_gate.current_gain());
+                right_gains_linked.push(linked_gate.right_gate.current_gain());
+            }
+            
+            // In linked mode, gains should be identical
+            for i in 0..left_gains_linked.len() {
+                assert!((left_gains_linked[i] - right_gains_linked[i]).abs() < 1e-6,
+                        "Linked mode: gains should be identical. Left: {}, Right: {}", 
+                        left_gains_linked[i], right_gains_linked[i]);
+            }
+            
+            // Test unlinked mode - channels can have different gains
+            let mut unlinked_gate = StereoNoiseGate::new(config, false);
+            
+            // Process to steady state
+            for _ in 0..1000 {
+                unlinked_gate.process_stereo(quiet_signal, loud_signal);
+            }
+            
+            // Check that gains are different
+            let left_gain = unlinked_gate.left_gate.current_gain();
+            let right_gain = unlinked_gate.right_gate.current_gain();
+            
+            assert!(left_gain < 0.5, "Unlinked: quiet channel should be gated. Gain: {}", left_gain);
+            assert!(right_gain > 0.9, "Unlinked: loud channel should be open. Gain: {}", right_gain);
+            assert!((left_gain - right_gain).abs() > 0.4, 
+                    "Unlinked mode: gains should differ significantly. Left: {}, Right: {}", 
+                    left_gain, right_gain);
+        }
+        
+        #[test]
+        fn test_lookahead_with_long_attack_smoothness() {
+            // Test that lookahead with long attack produces smooth gain changes
+            
+            let mut config = NoiseGateConfig::with_sample_rate(48000.0);
+            config.threshold_db = -20.0;
+            config.lookahead_ms = 5.0;
+            config.gate_attack_ms = 50.0; // Long attack for smooth opening
+            config.gate_release_ms = 50.0;
+            
+            let mut gate = NoiseGate::new(config);
+            
+            // Create a step signal: quiet -> loud
+            let quiet = db_to_linear(-30.0);
+            let loud = db_to_linear(-10.0);
+            
+            // Process quiet signal first
+            for _ in 0..100 {
+                gate.process_sample(quiet);
+            }
+            
+            // Collect gain changes during transition
+            let mut gain_differences = Vec::new();
+            let mut prev_gain = gate.current_gain();
+            
+            // Process transition from quiet to loud
+            // Need more samples for 50ms attack time at 48kHz (50ms = 2400 samples)
+            for i in 0..3000 {
+                let input = if i < 50 { quiet } else { loud };
+                gate.process_sample(input);
+                
+                let current_gain = gate.current_gain();
+                let diff = (current_gain - prev_gain).abs();
+                if diff > 0.0 {
+                    gain_differences.push(diff);
+                }
+                prev_gain = current_gain;
+            }
+            
+            // Check that gain changes are smooth (no large jumps)
+            let max_diff = gain_differences.iter().fold(0.0f32, |a, &b| a.max(b));
+            let avg_diff = gain_differences.iter().sum::<f32>() / gain_differences.len().max(1) as f32;
+            
+            // With 50ms attack and proper lookahead, max change per sample should be small
+            assert!(max_diff < 0.05, "Max gain change per sample too large: {}", max_diff);
+            assert!(avg_diff < 0.02, "Average gain change too large: {}", avg_diff);
+            
+            // Verify gate eventually opens substantially (after sufficient time for 50ms attack)
+            assert!(gate.current_gain() > 0.9, "Gate should be substantially open. Gain: {}", gate.current_gain());
+        }
+        
+        #[test]
+        fn test_linear_fast_path_correctness() {
+            // Test that linear fast-path produces same results as dB path
+            // within acceptable epsilon
+            
+            let config = NoiseGateConfig::with_sample_rate(48000.0);
+            let mut gate = NoiseGate::new(config);
+            
+            // Test grid of envelope, threshold, and ratio values
+            let envelopes = [0.001, 0.01, 0.1, 0.3, 0.5, 0.7, 0.9, 1.0];
+            let thresholds_db = [-40.0, -30.0, -20.0, -10.0, -6.0];
+            let ratios = [2.0, 4.0, 10.0, 20.0, 50.0];
+            
+            for &threshold_db in &thresholds_db {
+                gate.config.threshold_db = threshold_db;
+                gate.open_threshold_linear = db_to_linear(threshold_db);
+                
+                for &ratio in &ratios {
+                    gate.config.ratio = ratio;
+                    
+                    for &envelope in &envelopes {
+                        // Calculate using linear fast-path (hard knee)
+                        gate.config.soft_knee = false;
+                        let gain_linear = gate.calculate_gain(envelope);
+                        
+                        // Calculate using dB path (by using calculate_ratio_gain directly)
+                        let envelope_db = linear_to_db(envelope);
+                        let gain_db = if envelope_db >= threshold_db {
+                            1.0
+                        } else {
+                            gate.calculate_ratio_gain(envelope_db)
+                        };
+                        
+                        // They should match within small epsilon
+                        let diff = (gain_linear - gain_db).abs();
+                        assert!(diff < 1e-5, 
+                                "Linear vs dB mismatch: envelope={}, threshold_db={}, ratio={}, linear={}, db={}, diff={}", 
+                                envelope, threshold_db, ratio, gain_linear, gain_db, diff);
+                    }
+                }
+            }
         }
 }

@@ -7,7 +7,7 @@
 //! The structures in this module are not thread-safe. For concurrent access,
 //! wrap in Arc<Mutex<_>> or Arc<RwLock<_>>.
 
-use crate::utils::{linear_to_db, db_to_linear, calculate_rms, DENORMAL_PREVENTION};
+use crate::utils::{linear_to_db, db_to_linear, DENORMAL_PREVENTION};
 use std::collections::VecDeque;
 use rand::{Rng, SeedableRng};
 use rand::rngs::SmallRng;
@@ -155,26 +155,9 @@ impl SpectrumRingBuffer {
         self.size = self.size.saturating_add(1).min(self.capacity);
     }
     
-    fn iter(&self) -> impl Iterator<Item = &[f32]> {
-        let start = if self.size < self.capacity {
-            0
-        } else {
-            self.write_index
-        };
-        
-        (0..self.size).map(move |i| {
-            let idx = (start + i) % self.capacity;
-            &self.buffer[idx][..]
-        })
-    }
-    
     fn clear(&mut self) {
         self.write_index = 0;
         self.size = 0;
-    }
-    
-    fn len(&self) -> usize {
-        self.size
     }
 }
 
@@ -222,12 +205,46 @@ pub struct NoiseProfile {
     
     /// Previous spectrum for flux calculation
     prev_spectrum: Vec<f32>,
+    
+    // Minimum Statistics (Martin 2001) fields
+    /// Minimum values within the current window for each frequency bin
+    min_statistics_window: Vec<Vec<f32>>,
+    
+    /// Current position in the minimum statistics window
+    min_stats_window_pos: usize,
+    
+    /// Window length for minimum statistics (in frames)
+    min_stats_window_length: usize,
+    
+    /// Subwindow length for faster tracking
+    min_stats_subwindow_length: usize,
+    
+    /// Smoothed power spectrum for minimum statistics
+    smoothed_power: Vec<f32>,
+    
+    /// Minimum of smoothed power in current window
+    min_smoothed_power: Vec<f32>,
+    
+    /// Bias compensation factor for minimum statistics
+    bias_compensation: Vec<f32>,
+    
+    /// Variance estimate for bias compensation
+    variance_estimate: Vec<f32>,
+    
+    /// Counter for minimum statistics updates
+    min_stats_counter: usize,
 }
 
 impl NoiseProfile {
     /// Create a new noise profile
     pub fn new(num_bins: usize, sample_rate: f32, fft_size: usize) -> Self {
         let initial_magnitude = db_to_linear(-50.0);
+        
+        // Minimum statistics parameters (Martin 2001)
+        // Window length: ~1.5 seconds worth of frames
+        let frame_rate = sample_rate / (fft_size as f32 / 2.0); // Approximate frame rate with 50% overlap
+        let min_stats_window_length = (1.5 * frame_rate) as usize;
+        let min_stats_subwindow_length = min_stats_window_length / 8; // 8 subwindows
         
         Self {
             spectrum: vec![initial_magnitude; num_bins],
@@ -242,6 +259,16 @@ impl NoiseProfile {
             min_spectrum: vec![f32::MAX; num_bins],
             max_spectrum: vec![0.0; num_bins],
             prev_spectrum: vec![initial_magnitude; num_bins],
+            // Initialize minimum statistics fields
+            min_statistics_window: vec![vec![f32::MAX; num_bins]; 8], // 8 subwindows
+            min_stats_window_pos: 0,
+            min_stats_window_length,
+            min_stats_subwindow_length,
+            smoothed_power: vec![initial_magnitude; num_bins],
+            min_smoothed_power: vec![initial_magnitude; num_bins],
+            bias_compensation: vec![1.0; num_bins], // Initial bias compensation factor
+            variance_estimate: vec![0.0; num_bins],
+            min_stats_counter: 0,
         }
     }
     
@@ -389,10 +416,74 @@ impl NoiseProfile {
         
         self.frame_count += 1;
         
+        // Update minimum statistics (Martin 2001)
+        self.update_minimum_statistics(magnitude_spectrum);
+        
         // Update statistics
         self.update_statistics();
         
         Ok(())
+    }
+    
+    /// Update noise estimate using minimum statistics (Martin 2001)
+    fn update_minimum_statistics(&mut self, magnitude_spectrum: &[f32]) {
+        // Constants for minimum statistics
+        const ALPHA_S: f32 = 0.9; // Smoothing parameter for power spectrum
+        const ALPHA_D: f32 = 0.95; // Smoothing for variance estimate
+        const BIAS_FACTOR_BASE: f32 = 1.5; // Base bias compensation factor
+        
+        // Update smoothed power spectrum
+        for i in 0..self.num_bins {
+            let power = magnitude_spectrum[i] * magnitude_spectrum[i];
+            
+            // Smooth the power spectrum
+            self.smoothed_power[i] = ALPHA_S * self.smoothed_power[i] + (1.0 - ALPHA_S) * power;
+            
+            // Update variance estimate for bias compensation
+            let delta = (power - self.smoothed_power[i]).abs();
+            self.variance_estimate[i] = ALPHA_D * self.variance_estimate[i] + (1.0 - ALPHA_D) * delta;
+        }
+        
+        // Determine current subwindow index
+        let subwindow_idx = self.min_stats_counter / self.min_stats_subwindow_length;
+        let subwindow_idx = subwindow_idx % 8; // We use 8 subwindows
+        
+        // Store current smoothed power in appropriate subwindow
+        if self.min_stats_counter % self.min_stats_subwindow_length == 0 {
+            // New subwindow - reset this subwindow's minimums
+            for i in 0..self.num_bins {
+                self.min_statistics_window[subwindow_idx][i] = self.smoothed_power[i];
+            }
+        } else {
+            // Update minimums within current subwindow
+            for i in 0..self.num_bins {
+                self.min_statistics_window[subwindow_idx][i] = 
+                    self.min_statistics_window[subwindow_idx][i].min(self.smoothed_power[i]);
+            }
+        }
+        
+        // Find minimum across all subwindows
+        for i in 0..self.num_bins {
+            self.min_smoothed_power[i] = f32::MAX;
+            for subwin in &self.min_statistics_window {
+                self.min_smoothed_power[i] = self.min_smoothed_power[i].min(subwin[i]);
+            }
+            
+            // Calculate adaptive bias compensation based on variance
+            // Higher variance indicates more speech activity, requiring more compensation
+            let variance_factor = (self.variance_estimate[i] / (self.min_smoothed_power[i] + DENORMAL_PREVENTION)).sqrt();
+            self.bias_compensation[i] = BIAS_FACTOR_BASE * (1.0 + 0.5 * variance_factor.min(2.0));
+            
+            // Apply minimum statistics with bias compensation to update noise estimate
+            // Take square root to get magnitude from power
+            let compensated_magnitude = (self.min_smoothed_power[i] * self.bias_compensation[i]).sqrt();
+            
+            // Blend with existing estimate using smoothing
+            let alpha = 0.95; // Slower update for stability
+            self.spectrum[i] = alpha * self.spectrum[i] + (1.0 - alpha) * compensated_magnitude;
+        }
+        
+        self.min_stats_counter += 1;
     }
     
     /// Calculate spectral gate with pre-allocated gain buffer (performance optimization)
@@ -708,6 +799,16 @@ impl NoiseProfile {
         self.frame_count = 0;
         self.statistics = NoiseStatistics::default();
         self.is_locked = false;
+        
+        // Reset minimum statistics fields
+        for subwin in &mut self.min_statistics_window {
+            subwin.fill(f32::MAX);
+        }
+        self.smoothed_power.fill(initial_magnitude);
+        self.min_smoothed_power.fill(initial_magnitude);
+        self.bias_compensation.fill(1.0);
+        self.variance_estimate.fill(0.0);
+        self.min_stats_counter = 0;
     }
     
     /// Estimate noise from a collection of frames (batch mode)

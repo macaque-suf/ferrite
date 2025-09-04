@@ -1,14 +1,20 @@
 [package]
-name = "audio-processor-core"
+name = "wasm-audio-ferrite"
 version = "0.1.0"
 edition = "2021"
 authors = ["Zeneil Ambekar"]
-description = "High-performance audio processing core for noise reduction"
+description = "High-performance real-time audio noise reduction powered by WebAssembly and Rust"
 license = "MIT"
+repository = "https://github.com/yourusername/wasm-audio-ferrite"
+homepage = "https://github.com/yourusername/wasm-audio-ferrite"
+documentation = "https://docs.rs/wasm-audio-ferrite"
+readme = "../README.md"
+keywords = ["audio", "wasm", "noise-reduction", "dsp", "real-time"]
+categories = ["multimedia::audio", "wasm", "algorithms"]
 
 [lib]
 # Generate a C-compatible dynamic library for WASM
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Core WASM bindings
@@ -39,6 +45,11 @@ features = [
   "Window",
 ]
 
+# Random number generation for noise synthesis
+[dependencies.rand]
+version = "0.8"
+features = ["small_rng"]
+
 # JavaScript bindings
 [dependencies.js-sys]
 version = "0.3"
@@ -52,7 +63,6 @@ simd = []
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
 approx = "0.5"  # For floating point comparisons in tests
-rand = "0.8"    # For generating test data
 criterion = "0.5"  # For benchmarking
 
 # Profile for release builds - maximum optimization
@@ -85,16 +95,9 @@ opt-level = 3
 
 # Package metadata for wasm-pack
 [package.metadata.wasm-pack]
-"wasm-opt" = ["-O4", "--enable-simd"]  # Maximum optimization with SIMD
-
-# Enable parallel processing (requires SharedArrayBuffer)
-parallel = []
-
-# Debug mode with additional logging
-debug = ["console_error_panic_hook"]
-
-# Benchmark feature for performance testing
-bench = []
+# Disable wasm-opt to avoid bulk memory operation issues
+# We'll use rustc's own optimizations instead
+"wasm-opt" = false
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # WASM-specific dependencies
@@ -103,6 +106,8 @@ getrandom = { version = "0.2", features = ["js"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Native dependencies for testing outside WASM
 hound = "3.5"  # WAV file I/O for testing
+cpal = "0.15"  # Cross-platform audio I/O
+anyhow = "1.0"  # Error handling
 
 # Configuration for documentation
 [package.metadata.docs.rs]

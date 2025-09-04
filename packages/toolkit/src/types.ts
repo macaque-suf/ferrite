@@ -1,5 +1,5 @@
 /**
- * Type definitions for Web Audio Toolkit
+ * Type definitions for WASM Audio Ferrite
  * 
  * This module provides comprehensive TypeScript types for the audio processing
  * toolkit, ensuring type safety across the JavaScript/WASM boundary.
@@ -33,6 +33,32 @@ export type ChannelConfig = 'mono' | 'stereo';
  * Processing quality presets
  */
 export type QualityPreset = 'low' | 'medium' | 'high' | 'ultra';
+
+/**
+ * Audio format specification
+ */
+export interface AudioFormat {
+  /** Sample rate in Hz */
+  sampleRate: number;
+  /** Number of channels */
+  channels: number;
+  /** Bit depth (16, 24, or 32) */
+  bitDepth?: number;
+}
+
+/**
+ * Buffer statistics for monitoring
+ */
+export interface BufferStats {
+  /** Current buffer fill level (0-1) */
+  fillLevel: number;
+  /** Number of underruns */
+  underruns: number;
+  /** Number of overruns */
+  overruns: number;
+  /** Average latency in ms */
+  latency: number;
+}
 
 // ============================================================================
 // Noise Gate Types
@@ -484,6 +510,35 @@ export interface AudioParamDescriptor {
 // ============================================================================
 // Visualization Types
 // ============================================================================
+
+/**
+ * Gate state for visualization
+ */
+export enum GateState {
+  Closed = 'closed',
+  Opening = 'opening',
+  Open = 'open',
+  Closing = 'closing'
+}
+
+/**
+ * Spectrum data for visualization
+ */
+export interface SpectrumData {
+  frequencies: Float32Array;
+  magnitudes: Float32Array;
+  sampleRate: number;
+  timestamp: number;
+}
+
+/**
+ * Visualization performance metrics
+ */
+export interface VisualizationMetrics {
+  fps: number;
+  frameTime: number;
+  droppedFrames: number;
+}
 
 /**
  * Visualization configuration
