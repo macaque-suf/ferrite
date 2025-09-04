@@ -832,7 +832,7 @@ mod tests {
             let data = vec![i as f32; write_size];
             
             // Write what we can
-            let written = rb.write_available(&data);
+            let _written = rb.write_available(&data);
             
             // Read some to make space
             if rb.available() >= 3 {

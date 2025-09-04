@@ -323,6 +323,65 @@ impl ParameterSmoother {
     }
 }
 
+/// Parameter smoother with separate attack and release rates
+/// Used for gain smoothing where you want different speeds for increases vs decreases
+pub struct DualRateParameterSmoother {
+    target: f32,
+    current: f32,
+    attack_coeff: f32,  // Coefficient for rising values
+    release_coeff: f32, // Coefficient for falling values
+}
+
+impl DualRateParameterSmoother {
+    /// Create a new dual-rate parameter smoother
+    pub fn new(initial_value: f32, attack_ms: f32, release_ms: f32, sample_rate: f32) -> Self {
+        Self {
+            target: initial_value,
+            current: initial_value,
+            attack_coeff: calculate_time_constant(attack_ms, sample_rate),
+            release_coeff: calculate_time_constant(release_ms, sample_rate),
+        }
+    }
+
+    /// Set the target value
+    #[inline]
+    pub fn set_target(&mut self, value: f32) {
+        self.target = value;
+    }
+
+    /// Get next smoothed value with automatic coefficient selection
+    #[inline]
+    pub fn next(&mut self) -> f32 {
+        // Choose coefficient based on direction
+        let coeff = if self.target > self.current {
+            self.attack_coeff  // Rising - use attack time
+        } else {
+            self.release_coeff // Falling - use release time
+        };
+        
+        self.current = self.target + coeff * (self.current - self.target);
+        self.current + DENORMAL_PREVENTION // Prevent denormals
+    }
+
+    /// Check if smoothing is complete (within epsilon)
+    #[inline]
+    pub fn is_settled(&self, epsilon: f32) -> bool {
+        (self.current - self.target).abs() < epsilon
+    }
+
+    /// Force immediate value change (bypass smoothing)
+    pub fn reset(&mut self, value: f32) {
+        self.target = value;
+        self.current = value;
+    }
+    
+    /// Update coefficients (for parameter changes)
+    pub fn update_coefficients(&mut self, attack_ms: f32, release_ms: f32, sample_rate: f32) {
+        self.attack_coeff = calculate_time_constant(attack_ms, sample_rate);
+        self.release_coeff = calculate_time_constant(release_ms, sample_rate);
+    }
+}
+
 // ============================================================================
 // Utility Functions
 // ============================================================================

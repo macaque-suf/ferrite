@@ -233,7 +233,6 @@ pub struct FftProcessor {
     // Windows
     analysis_window: Vec<f32>,
     synthesis_window: Vec<f32>,
-    window_type: WindowType,
     
     // Overlap-add parameters
     hop_size: usize,
@@ -307,7 +306,6 @@ impl FftProcessor {
             mode,
             analysis_window,
             synthesis_window,
-            window_type,
             hop_size,
             overlap_percent,
             input_buffer: vec![0.0; fft_size],
@@ -614,6 +612,90 @@ impl OverlapAddProcessor {
         }
         
         Ok(output_written)
+    }
+    
+    pub fn process_with_spectrum<F>(
+        &mut self, 
+        input: &[f32], 
+        output: &mut [f32], 
+        mut processor: F
+    ) -> Result<usize, FftError> 
+    where 
+        F: FnMut(&mut [Complex32])
+        {
+            // Add input to buffer
+            self.input_buffer.write_available(input);
+
+            let fft_size = self.fft_processor.fft_size;
+            let hop_size = self.fft_processor.hop_size;
+
+            output.fill(0.0);
+            let mut output_written = 0;
+
+            // Process complete frames using sliding window
+            while self.input_buffer.available() >= hop_size {
+                // Special handling for first frame
+                if self.frames_processed == 0 && self.input_buffer.available() >= fft_size {
+                    // Read full FFT frame for the first time
+                    if self.input_buffer.read(&mut self.fft_input_window).is_err() {
+                        break;
+                    }
+                } else if self.frames_processed > 0 {
+                    // Sliding window: shift left by hop_size
+                    self.fft_input_window.rotate_left(hop_size);
+
+                    // Read hop_size new samples into reusable buffer
+                    if self.input_buffer.read(&mut self.hop_buffer).is_err() {
+                        break;
+                    }
+
+                    // Place new samples at the end
+                    self.fft_input_window[fft_size - hop_size..].copy_from_slice(&self.hop_buffer);
+                } else {
+                    // Not enough samples for first frame yet
+                    break;
+                }
+
+                // Forward FFT (includes windowing)
+                let spectrum = self.fft_processor.forward(&self.fft_input_window)?;
+                self.spectrum_work.copy_from_slice(spectrum);
+
+                // Apply spectral processing using the provided processor
+                processor(&mut self.spectrum_work);
+
+                // Inverse FFT
+                let frame_result = self.fft_processor.inverse(&self.spectrum_work)?;
+
+                // Overlap-add into accumulator with window compensation
+                for i in 0..fft_size {
+                    self.overlap_buffer[i] += frame_result[i] * self.window_compensation;
+                }
+
+                // Output the first hop_size samples
+                let samples_to_output = hop_size.min(output.len() - output_written);
+                for i in 0..samples_to_output {
+                    output[output_written + i] = self.overlap_buffer[i];
+                }
+                output_written += samples_to_output;
+
+                // Shift the overlap buffer left by hop_size and zero the end
+                self.overlap_buffer.rotate_left(hop_size);
+                self.overlap_buffer[fft_size - hop_size..].fill(0.0);
+
+                self.frames_processed += 1;
+            }
+
+            Ok(output_written)
+        }
+
+    /// Get the FFT size
+    pub fn fft_size(&self) -> usize {
+        self.fft_processor.fft_size
+    }
+    
+    /// Get the hop size  
+    pub fn hop_size(&self) -> usize {
+        self.fft_processor.hop_size
     }
     
     /// Get the latency in samples

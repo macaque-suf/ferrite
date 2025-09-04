@@ -39,6 +39,11 @@ features = [
   "Window",
 ]
 
+# Random number generation for noise synthesis
+[dependencies.rand]
+version = "0.8"
+features = ["small_rng"]
+
 # JavaScript bindings
 [dependencies.js-sys]
 version = "0.3"
@@ -52,7 +57,6 @@ simd = []
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
 approx = "0.5"  # For floating point comparisons in tests
-rand = { version = "0.8", features = ["small_rng"] }    # For generating test data
 criterion = "0.5"  # For benchmarking
 
 # Profile for release builds - maximum optimization
@@ -85,10 +89,7 @@ opt-level = 3
 
 # Package metadata for wasm-pack
 [package.metadata.wasm-pack]
-"wasm-opt" = ["-O4", "--enable-simd"]  # Maximum optimization with SIMD
-
-# Enable parallel processing (requires SharedArrayBuffer)
-parallel = []
+wasm-opt = false
 
 # Debug mode with additional logging
 debug = ["console_error_panic_hook"]

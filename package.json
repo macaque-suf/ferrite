@@ -6,7 +6,7 @@
     "demo"
   ],
   "scripts": {
-    "build:wasm": "cd audio-processor-core && wasm-pack build --target web --out-dir ../packages/toolkit/src/wasm",
+    "build:wasm": "cd audio-processor-core && wasm-pack build --target web --out-dir ../packages/toolkit/src/wasm --no-opt",
     "build:toolkit": "cd packages/toolkit && npm run build",
     "build": "npm run build:wasm && npm run build:toolkit",
     "dev": "npm run build:wasm && cd demo && vite",
