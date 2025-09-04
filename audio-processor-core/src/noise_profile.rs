@@ -7,7 +7,7 @@
 //! The structures in this module are not thread-safe. For concurrent access,
 //! wrap in Arc<Mutex<_>> or Arc<RwLock<_>>.
 
-use crate::utils::{linear_to_db, db_to_linear, calculate_rms, DENORMAL_PREVENTION};
+use crate::utils::{linear_to_db, db_to_linear, DENORMAL_PREVENTION};
 use std::collections::VecDeque;
 use rand::{Rng, SeedableRng};
 use rand::rngs::SmallRng;

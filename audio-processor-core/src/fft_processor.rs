@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::f32::consts::PI;
 
 // Import the lock-free ring buffer from your ring_buffer module
-use crate::ring_buffer::{RingBuffer as LockFreeRingBuffer, RingBufferError};
+use crate::ring_buffer::RingBuffer as LockFreeRingBuffer;
 
 // ============================================================================
 // Constants

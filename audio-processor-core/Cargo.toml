@@ -52,7 +52,7 @@ simd = []
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
 approx = "0.5"  # For floating point comparisons in tests
-rand = "0.8"    # For generating test data
+rand = { version = "0.8", features = ["small_rng"] }    # For generating test data
 criterion = "0.5"  # For benchmarking
 
 # Profile for release builds - maximum optimization

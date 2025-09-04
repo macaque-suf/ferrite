@@ -10,7 +10,7 @@
 
 use crate::utils::{
     db_to_linear, linear_to_db, EnvelopeFollower, ParameterSmoother, 
-    calculate_rms, clamp, lerp, DENORMAL_PREVENTION
+    lerp, DENORMAL_PREVENTION
 };
 use crate::ring_buffer::RingBuffer;
 
@@ -663,7 +663,6 @@ impl StereoNoiseGate {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::utils::linear_to_db;
         
         #[test]
         fn test_noise_gate_creation() {
