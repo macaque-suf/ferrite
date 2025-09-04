@@ -1,0 +1,125 @@
+[package]
+name = "audio-processor-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Zeneil Ambekar"]
+description = "High-performance audio processing core for noise reduction"
+license = "MIT"
+
+[lib]
+# Generate a C-compatible dynamic library for WASM
+crate-type = ["cdylib"]
+
+[dependencies]
+# Core WASM bindings
+wasm-bindgen = "0.2.92"
+
+# FFT processing - using rustfft for pure Rust implementation
+rustfft = "6.2"
+
+# Complex number support for FFT
+num-complex = { version = "0.4", default-features = false }
+
+# Performance optimization for no_std compatibility
+libm = "0.2"
+
+# Serialization for passing data between JS and WASM
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+
+# Console error panic hook for better debugging
+console_error_panic_hook = { version = "0.1", optional = true }
+
+# Web APIs
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "console",
+  "Performance",
+  "Window",
+]
+
+# JavaScript bindings
+[dependencies.js-sys]
+version = "0.3"
+
+[features]
+default = ["console_panic"]
+console_panic = ["console_error_panic_hook"]
+simd = []
+
+# Development dependencies for testing
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+approx = "0.5"  # For floating point comparisons in tests
+rand = "0.8"    # For generating test data
+criterion = "0.5"  # For benchmarking
+
+# Profile for release builds - maximum optimization
+[profile.release]
+opt-level = 3           # Maximum optimization
+lto = true             # Link-time optimization
+codegen-units = 1      # Single codegen unit for better optimization
+strip = true           # Strip symbols for smaller size
+panic = "abort"        # Smaller binary, no unwinding
+overflow-checks = false # Disable in release for performance
+
+# Profile for profiling builds
+[profile.profiling]
+inherits = "release"
+debug = true           # Keep debug symbols for profiling
+
+# Profile for WASM size optimization
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"        # Optimize for size
+lto = "fat"           # Aggressive LTO
+strip = true
+
+# Optimize build dependencies for faster compilation
+[profile.dev.build-override]
+opt-level = 3
+
+[profile.release.build-override]
+opt-level = 3
+
+# Package metadata for wasm-pack
+[package.metadata.wasm-pack]
+"wasm-opt" = ["-O4", "--enable-simd"]  # Maximum optimization with SIMD
+
+# Enable parallel processing (requires SharedArrayBuffer)
+parallel = []
+
+# Debug mode with additional logging
+debug = ["console_error_panic_hook"]
+
+# Benchmark feature for performance testing
+bench = []
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# WASM-specific dependencies
+getrandom = { version = "0.2", features = ["js"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Native dependencies for testing outside WASM
+hound = "3.5"  # WAV file I/O for testing
+
+# Configuration for documentation
+[package.metadata.docs.rs]
+all-features = true
+targets = ["wasm32-unknown-unknown"]
+
+# Linting configuration
+[lints.rust]
+unsafe_code = "warn"
+missing_docs = "warn"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
+nursery = "warn"
+cargo = "warn"
+# Allow some common patterns in DSP code
+cast_precision_loss = "allow"  # Common in DSP for f64->f32
+cast_possible_truncation = "allow"  # Common for indices
+cast_sign_loss = "allow"  # Common for unsigned operations

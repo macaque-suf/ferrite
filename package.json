@@ -1,0 +1,20 @@
+{
+  "name": "web-audio-toolkit",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "demo"
+  ],
+  "scripts": {
+    "build:wasm": "cd audio-processor-core && wasm-pack build --target web --out-dir ../packages/toolkit/src/wasm",
+    "build:toolkit": "cd packages/toolkit && npm run build",
+    "build": "npm run build:wasm && npm run build:toolkit",
+    "dev": "npm run build:wasm && cd demo && vite",
+    "test": "npm run test -ws"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^5.0.0"
+  }
+}
