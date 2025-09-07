@@ -475,8 +475,8 @@
         // Initialize WASM
         async function initializeWasm() {
             try {
-                const wasmModule = await import('./wasm/audio_processor_core.js');
-                await wasmModule.default();
+                const wasmModule = await import('/wasm/wasm_audio_ferrite.js');
+                await wasmModule.default('/wasm/wasm_audio_ferrite_bg.wasm');
                 
                 const { NoiseReducer } = wasmModule;
                 window.wasmModule = new NoiseReducer(48000);
