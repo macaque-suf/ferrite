@@ -1,6 +1,6 @@
 {
   "name": "wasm-audio-ferrite",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "High-performance real-time audio noise reduction powered by WebAssembly and Rust",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
@@ -8,7 +8,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CONTRIBUTORS.md"
   ],
   "keywords": [
     "audio",

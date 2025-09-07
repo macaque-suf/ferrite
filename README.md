@@ -29,7 +29,7 @@ WASM Audio Ferrite is a cutting-edge noise reduction system that brings professi
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/wasm-audio-ferrite.git
+git clone https://github.com/macaque-suf/ferrite
 cd wasm-audio-ferrite
 
 # Install dependencies
