@@ -525,9 +525,9 @@
             showStatus('wasmStatus', 'Initializing WASM module...', 'info', true);
             
             try {
-                // Load the actual WASM module
-                const wasmModule = await import('./wasm/audio_processor_core.js');
-                await wasmModule.default(); // Initialize WASM
+                // Load the actual WASM module using dynamic loader
+                const { initializeWasm } = await import('./wasm-init.js');
+                const wasmModule = await initializeWasm();
                 
                 // Create the real NoiseReducer from WASM
                 const { NoiseReducer: WasmNoiseReducer } = wasmModule;

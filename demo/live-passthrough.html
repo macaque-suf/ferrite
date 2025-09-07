@@ -481,9 +481,10 @@
                     latencyHint: 'interactive'
                 });
                 
-                // Load WASM module
-                const wasmModule = await import('./wasm/audio_processor_core.js');
-                const wasmInstance = await wasmModule.default();
+                // Load WASM module using dynamic loader
+                const { initializeWasm } = await import('./wasm-init.js');
+                const wasmModule = await initializeWasm();
+                const wasmInstance = wasmModule;
                 
                 const { NoiseReducer } = wasmModule;
                 window.wasmModule = new NoiseReducer(window.audioContext.sampleRate);
