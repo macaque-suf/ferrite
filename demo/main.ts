@@ -1,9 +1,13 @@
-import { NoiseReducer } from '../packages/toolkit/src';
+// Import WASM from public folder for Vercel deployment
+import init, { NoiseReducer as WasmNoiseReducer } from '/wasm/wasm_audio_ferrite.js';
 import { SpectrumVisualizer, GateState } from './visualizer';
+
+// Initialize WASM module on load
+await init('/wasm/wasm_audio_ferrite_bg.wasm');
 
 let audioContext: AudioContext;
 let microphone: MediaStreamAudioSourceNode;
-let processor: NoiseReducer;
+let processor: WasmNoiseReducer;
 let processingEnabled = false;
 let visualizer: SpectrumVisualizer;
 
@@ -33,11 +37,8 @@ startBtn.addEventListener('click', async () => {
     audioContext = new AudioContext();
     microphone = audioContext.createMediaStreamSource(stream);
     
-    // Initialize processor
-    processor = new NoiseReducer({ 
-      sampleRate: audioContext.sampleRate 
-    });
-    await processor.initialize();
+    // Initialize WASM processor directly
+    processor = new WasmNoiseReducer(audioContext.sampleRate);
     
     // Set up audio processing chain
     const analyser = audioContext.createAnalyser();

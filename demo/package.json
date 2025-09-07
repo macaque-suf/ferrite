@@ -5,8 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run copy:wasm && vite build",
-    "copy:wasm": "mkdir -p public/wasm && cp -r ../dist/wasm/* public/wasm/",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
