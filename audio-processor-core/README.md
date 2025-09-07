@@ -146,10 +146,7 @@ All unsafe code is carefully documented and tested.
 ## 📝 License
 
 Licensed under either of:
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE_APACHE))
 - MIT license ([LICENSE-MIT](LICENSE_MIT))
-
-at your option.
 
 ## 🤝 Contributing
 
