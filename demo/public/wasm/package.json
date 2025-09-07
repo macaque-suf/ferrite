@@ -1,0 +1,33 @@
+{
+  "name": "wasm-audio-ferrite",
+  "type": "module",
+  "collaborators": [
+    "Zeneil Ambekar"
+  ],
+  "description": "High-performance real-time audio noise reduction powered by WebAssembly and Rust",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/wasm-audio-ferrite"
+  },
+  "files": [
+    "wasm_audio_ferrite_bg.wasm",
+    "wasm_audio_ferrite.js",
+    "wasm_audio_ferrite.d.ts",
+    "LICENSE_MIT"
+  ],
+  "main": "wasm_audio_ferrite.js",
+  "homepage": "https://github.com/yourusername/wasm-audio-ferrite",
+  "types": "wasm_audio_ferrite.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ],
+  "keywords": [
+    "audio",
+    "wasm",
+    "noise-reduction",
+    "dsp",
+    "real-time"
+  ]
+}

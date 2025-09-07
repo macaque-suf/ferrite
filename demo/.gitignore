@@ -1,9 +1,6 @@
 # Build output
 dist/
 
-# WASM files (copied from parent build)
-public/wasm/
-
 # Vite
 .vite/
 
