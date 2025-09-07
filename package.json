@@ -40,8 +40,9 @@
   ],
   "scripts": {
     "build:wasm": "cd audio-processor-core && wasm-pack build --target web --out-dir ../dist/wasm --no-opt",
+    "patch:wasm": "node scripts/patch-wasm-memory.js",
     "build:toolkit": "cd packages/toolkit && npm run build",
-    "build": "npm run build:wasm && npm run build:toolkit",
+    "build": "npm run build:wasm && npm run patch:wasm && npm run build:toolkit",
     "prepublishOnly": "npm run build",
     "dev": "npm run build:wasm && cd demo && vite",
     "test": "echo 'Tests not configured yet'"
