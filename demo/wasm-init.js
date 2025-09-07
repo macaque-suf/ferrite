@@ -11,10 +11,17 @@ export async function initializeWasm() {
         // Initialize and get the actual WASM instance
         const wasmInstance = await module.default(wasmBinaryUrl);
         
+        // Create a wrapper object that includes all exports plus memory
+        // This avoids the "object is not extensible" error
+        const wasmWrapper = {
+            ...module,  // Spread all original exports
+            instance: wasmInstance
+        };
+        
         // The memory is exported as __wbindgen_export_0 by wasm-bindgen
         // This is the WebAssembly.Memory object we need for zero-copy
         if (module.__wbindgen_export_0) {
-            module.memory = module.__wbindgen_export_0;
+            wasmWrapper.memory = module.__wbindgen_export_0;
             console.log('WASM memory found in __wbindgen_export_0');
         }
         
@@ -22,15 +29,12 @@ export async function initializeWasm() {
         if (module.default && module.default.__wbindgen_wasm_module) {
             const wasmModule = module.default.__wbindgen_wasm_module;
             if (wasmModule && wasmModule.exports && wasmModule.exports.memory) {
-                module.memory = wasmModule.exports.memory;
+                wasmWrapper.memory = wasmModule.exports.memory;
                 console.log('WASM memory found in module.exports.memory');
             }
         }
         
-        // Store the instance reference if available
-        module.instance = wasmInstance;
-        
-        return module;
+        return wasmWrapper;
     } catch (error) {
         console.error('Failed to initialize WASM:', error);
         throw error;
