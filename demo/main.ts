@@ -1,9 +1,21 @@
-// Import WASM from public folder for Vercel deployment
-import init, { NoiseReducer as WasmNoiseReducer } from '/wasm/wasm_audio_ferrite.js';
 import { SpectrumVisualizer, GateState } from './visualizer';
 
+// WASM module will be loaded dynamically
+let WasmNoiseReducer: any;
+
+// Dynamic WASM loading function
+async function loadWasm() {
+    const wasmModuleUrl = new URL('/wasm/wasm_audio_ferrite.js', import.meta.url).href;
+    const wasmBinaryUrl = new URL('/wasm/wasm_audio_ferrite_bg.wasm', import.meta.url).href;
+    
+    const module = await import(/* @vite-ignore */ wasmModuleUrl);
+    await module.default(wasmBinaryUrl);
+    
+    WasmNoiseReducer = module.NoiseReducer;
+}
+
 // Initialize WASM module on load
-await init('/wasm/wasm_audio_ferrite_bg.wasm');
+await loadWasm();
 
 let audioContext: AudioContext;
 let microphone: MediaStreamAudioSourceNode;
