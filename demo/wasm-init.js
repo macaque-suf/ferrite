@@ -18,20 +18,27 @@ export async function initializeWasm() {
             instance: wasmInstance
         };
         
-        // The memory is exported as __wbindgen_export_0 by wasm-bindgen
-        // This is the WebAssembly.Memory object we need for zero-copy
-        if (module.__wbindgen_export_0) {
+        // Use our patched export function to get memory if available
+        if (module.getWasmMemory) {
+            wasmWrapper.memory = module.getWasmMemory();
+            console.log('WASM memory obtained via getWasmMemory()');
+        }
+        // Fallback to __wbindgen_export_0 if patch wasn't applied
+        else if (module.__wbindgen_export_0) {
             wasmWrapper.memory = module.__wbindgen_export_0;
             console.log('WASM memory found in __wbindgen_export_0');
         }
-        
         // Also check if the init function exposes the wasm module
-        if (module.default && module.default.__wbindgen_wasm_module) {
+        else if (module.default && module.default.__wbindgen_wasm_module) {
             const wasmModule = module.default.__wbindgen_wasm_module;
             if (wasmModule && wasmModule.exports && wasmModule.exports.memory) {
                 wasmWrapper.memory = wasmModule.exports.memory;
                 console.log('WASM memory found in module.exports.memory');
             }
+        }
+        
+        if (!wasmWrapper.memory) {
+            console.warn('Could not find WASM memory - zero-copy operations will not work');
         }
         
         return wasmWrapper;

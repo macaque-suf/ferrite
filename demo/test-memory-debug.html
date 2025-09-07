@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WASM Memory Debug</title>
+</head>
+<body>
+    <h1>WASM Memory Debug Test</h1>
+    <div id="output" style="font-family: monospace; white-space: pre;"></div>
+    
+    <script type="module">
+        const output = document.getElementById('output');
+        
+        function log(msg) {
+            console.log(msg);
+            output.textContent += msg + '\n';
+        }
+        
+        async function testWasmMemory() {
+            try {
+                log('Starting WASM memory test...\n');
+                
+                // Test 1: Load WASM module directly
+                log('Test 1: Loading WASM module directly...');
+                const directModule = await import('/wasm/wasm_audio_ferrite.js');
+                log('Direct module loaded');
+                log('Direct module keys: ' + Object.keys(directModule).join(', '));
+                log('Has __wbindgen_export_0: ' + (directModule.__wbindgen_export_0 !== undefined));
+                
+                // Initialize WASM
+                log('\nInitializing WASM...');
+                const wasmResult = await directModule.default('/wasm/wasm_audio_ferrite_bg.wasm');
+                log('WASM initialized, result: ' + wasmResult);
+                
+                // Check for memory after init
+                log('\nChecking for memory after init...');
+                log('__wbindgen_export_0 type: ' + typeof directModule.__wbindgen_export_0);
+                if (directModule.__wbindgen_export_0) {
+                    log('__wbindgen_export_0.buffer exists: ' + (directModule.__wbindgen_export_0.buffer !== undefined));
+                    if (directModule.__wbindgen_export_0.buffer) {
+                        log('Buffer byteLength: ' + directModule.__wbindgen_export_0.buffer.byteLength);
+                    }
+                }
+                
+                // Check if init function has __wbindgen_wasm_module
+                log('\nChecking __wbindgen_wasm_module...');
+                log('Has __wbindgen_wasm_module: ' + (directModule.default.__wbindgen_wasm_module !== undefined));
+                if (directModule.default.__wbindgen_wasm_module) {
+                    const wbModule = directModule.default.__wbindgen_wasm_module;
+                    log('wbModule.exports exists: ' + (wbModule.exports !== undefined));
+                    if (wbModule.exports) {
+                        log('wbModule.exports.memory exists: ' + (wbModule.exports.memory !== undefined));
+                        if (wbModule.exports.memory) {
+                            log('Memory buffer byteLength: ' + wbModule.exports.memory.buffer.byteLength);
+                        }
+                    }
+                }
+                
+                // Test 2: Create NoiseReducer and check for memory access methods
+                log('\nTest 2: Creating NoiseReducer...');
+                const { NoiseReducer } = directModule;
+                const reducer = new NoiseReducer(48000);
+                log('NoiseReducer created');
+                log('Has alloc_buffer: ' + (typeof reducer.alloc_buffer === 'function'));
+                log('Has processPtr: ' + (typeof reducer.processPtr === 'function'));
+                log('Has processInto: ' + (typeof reducer.processInto === 'function'));
+                
+                // Test 3: Try to allocate buffer
+                if (reducer.alloc_buffer) {
+                    log('\nTest 3: Allocating buffer...');
+                    try {
+                        const ptr = reducer.alloc_buffer(512);
+                        log('Buffer allocated at pointer: ' + ptr);
+                        
+                        // Try to access the memory
+                        if (directModule.__wbindgen_export_0) {
+                            const memory = directModule.__wbindgen_export_0;
+                            const buffer = new Float32Array(memory.buffer, ptr, 512);
+                            log('Created Float32Array view successfully');
+                            log('Buffer length: ' + buffer.length);
+                            
+                            // Write and read test
+                            buffer[0] = 42.0;
+                            log('Write test: buffer[0] = ' + buffer[0]);
+                        }
+                    } catch (e) {
+                        log('Error allocating buffer: ' + e.message);
+                    }
+                }
+                
+                // Test 4: Use our wasm-init loader
+                log('\n\nTest 4: Using wasm-init.js loader...');
+                const { initializeWasm } = await import('./wasm-init.js');
+                const loadedModule = await initializeWasm();
+                log('Module loaded via wasm-init');
+                log('Has memory property: ' + (loadedModule.memory !== undefined));
+                if (loadedModule.memory) {
+                    log('Memory buffer exists: ' + (loadedModule.memory.buffer !== undefined));
+                    if (loadedModule.memory.buffer) {
+                        log('Memory buffer byteLength: ' + loadedModule.memory.buffer.byteLength);
+                    }
+                }
+                
+                log('\n✅ Test complete!');
+                
+            } catch (error) {
+                log('\n❌ Error: ' + error.message);
+                console.error(error);
+            }
+        }
+        
+        testWasmMemory();
+    </script>
+</body>
+</html>
