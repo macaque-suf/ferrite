@@ -458,7 +458,10 @@
         </div>
     </div>
     
+    <!-- Load WASM module -->
     <script type="module">
+        import init, { NoiseReducer } from './wasm/wasm_audio_ferrite.js';
+        
         // Global state
         let audioContext = null;
         let wasmModule = null;
@@ -475,10 +478,10 @@
         // Initialize WASM
         async function initializeWasm() {
             try {
-                const wasmModule = await import('/wasm/wasm_audio_ferrite.js');
-                await wasmModule.default('/wasm/wasm_audio_ferrite_bg.wasm');
+                // Initialize WASM module
+                await init('./wasm/wasm_audio_ferrite_bg.wasm');
                 
-                const { NoiseReducer } = wasmModule;
+                // Create noise reducer instance
                 window.wasmModule = new NoiseReducer(48000);
                 
                 // Configure default settings
